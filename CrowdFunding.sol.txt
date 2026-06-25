@@ -1,0 +1,150 @@
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.8.19;
+
+import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+
+// 0x694AA1769357215DE4FAC081bf1f309aDC325306
+
+contract NeedMoney{
+
+uint256 public constant MINIMUM_USD = 5 * 1e18;
+
+address[] public fundersAddress;
+
+mapping( address funders => uint256 netAmnt) public addToAmnt;
+
+address public owner;
+
+constructor() {
+ owner = msg.sender;
+}
+
+modifier onlyOwner(){
+    require(owner == msg.sender , "You aint an owner brooo");
+    _;
+}
+
+
+
+
+    function funds() public payable{
+        require(getConversionPrice(msg.value)>=MINIMUM_USD , "Broo earn some real shit and then donate gng");
+        fundersAddress.push(msg.sender);
+        addToAmnt[msg.sender]+= msg.value;
+    }
+
+function need1EthPrice() public view returns(uint256){
+    (,int256 price , , ,) = AggregatorV3Interface(0x694AA1769357215DE4FAC081bf1f309aDC325306).latestRoundData();
+    return uint256(price*1e10);
+}
+
+
+
+function getConversionPrice(uint256 ethAmnt) public view returns(uint256){
+     uint256 singleEthPrice = need1EthPrice();
+    uint256 netAmntInUsd = (ethAmnt *singleEthPrice) / 1e18 ;
+
+    return netAmntInUsd;
+
+}
+
+    function withdrawFunds() public onlyOwner{
+    
+
+   for( uint256 i =0 ; i<fundersAddress.length;i++){
+    address funderPeople = fundersAddress[i];
+    addToAmnt[funderPeople] = 0;
+   }
+
+   fundersAddress = new address[](0);
+
+
+   (bool transSucc ,) = payable(msg.sender).call{value:address(this).balance}("");
+    require(transSucc , "Failed");
+
+
+
+    }
+
+    receive() external payable{
+        funds();
+    }
+
+    fallback() external payable{
+        funds();
+    }
+
+
+}
+
+
+
+/*
+
+LEARNINGS:
+
+1st:
+
+
+uint256 public constant MINIMUM_USD = 5; is the standard, widely accepted convention.
+According to the official Solidity Style Guide, the ordering for variable declarations should be:
+
+Type (uint256)  Visibility (public or private)  Mutability (constant or immutable)  Name (MINIMUM_USD)
+
+
+
+
+2nd:
+(bool transSucc ,) = payable(msg.sender).call{value:address(this).balance}("");
+
+here it does return true when txn executed not just only returns true 
+
+
+
+3rd:
+no need to make withdraw function payable coz When you are withdrawing ETH, your contract is sending money out, not taking it in.
+
+
+
+4th:
+
+A Remix VM is an isolated, local blockchain sandbox running entirely inside your browser. It has absolutely no connection to the real internet or the actual Ethereum testnets.
+Your local Remix VM looks for a contract at that address (0x694AA...) inside itself. Because that address doesn't exist on your temporary browser blockchain, the call fails completely, causing the transaction to revert
+
+the address u wrote inside aggretatot we are talking bout it.
+
+
+5th:
+
+  function withdrawFunds() public onlyOwner{
+    (bool transSucc ,) = payable(msg.sender).call{value:address(this).balance}("");
+    require(transSucc , "Failed");
+
+   for( uint256 i =0 ; i<fundersAddress.length;i++){
+    address funderPeople = fundersAddress[i];
+    addToAmnt[funderPeople] = 0;
+   }
+
+   fundersAddress = new address[](0);
+    }
+
+
+    this is the code i wrote for the withdraw function but this will cause reentrancy risk
+
+    Reentrancy Risk: In smart contract development, you should always follow the CEI (Checks, Effects, Interactions) pattern. You must modify your contract's state variables (Effects) before you interact with external addresses (Interactions). Sending ETH via .call should always be the absolute last thing you do.
+
+Gas & Logic Execution: If you empty the balance first, and the receiving address happens to execute code that causes a revert or breaks, your loop never finishes clean.
+
+The Fix: Move the .call block to the very bottom of the function.
+
+
+so basically now i would think if i delete the data first then how the fuck am i gonna withdraw money so basically u are deleting the data the money is still their in the contrat 
+
+
+
+For a hacker, a reentrancy vulnerability turns a smart contract into a broken ATM. If the contract sends out money before updating its internal ledger, the hacker can program a malicious contract to automatically interrupt your code. The moment your contract hands over the ETH, the hacker's contract immediately triggers its own fallback() or receive() function to call your withdraw function again.
+
+Because your contract hasn't reached the line of code that sets their balance to zero, it looks at the ledger, thinks the hacker still has funds, and sends the money a second time. This creates a devastating loop that repeats until the entire contract is completely drained of all its funds. This is exactly why the CEI (Checks, Effects, Interactions) pattern is a non-negotiable standard in Web3 development—it completely locks that door by ensuring the ledger is wiped clean before a single Wei ever leaves the contract.
+
+*/
